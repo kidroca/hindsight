@@ -1724,7 +1724,7 @@ class HindsightMemoryProvider(MemoryProvider):
             content, context=context, tags=args.get("tags"), occurred_at=args.get("occurred_at")
         )
         logger.debug("Tool hindsight_retain: bank=%s, content_len=%d, context=%s", self._bank_id, len(content), context)
-        self._retain_batch(item, bank_id=self._bank_id)
+        self._retain_batch(item, bank_id=self._bank_id, retain_async=False)
         logger.debug("Tool hindsight_retain: success")
         return "Memory stored successfully."
 

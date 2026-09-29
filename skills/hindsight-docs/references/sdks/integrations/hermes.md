@@ -219,9 +219,86 @@ Config file: `~/.hermes/hindsight/config.json`
 | Key | Default | Description |
 |-----|---------|-------------|
 | `bank_id` | `hermes` | Memory bank name (static fallback used when `bank_id_template` is unset or resolves empty) |
-| `bank_id_template` | — | Optional template to derive the bank name dynamically. Placeholders: `{profile}`, `{workspace}`, `{platform}`, `{user}`, `{session}`. Example: `hermes-{profile}` isolates memory per active Hermes profile. Empty placeholders collapse cleanly (e.g. `hermes-{user}` with no user becomes `hermes`). |
+| `bank_id_template` | — | Optional template to derive the bank name dynamically. Placeholders: `{profile}`, `{workspace}`, `{platform}`, `{user}`, `{session}`, `{gitProject}`. `{gitProject}` opts into worktree-aware project routing (see below). Example: `hermes-{profile}` isolates memory per active Hermes profile. Empty placeholders collapse cleanly (e.g. `hermes-{user}` with no user becomes `hermes`). |
+| `git_project` | — | Explicit name for `{gitProject}`, before Git discovery or basename fallback. Ignored unless the template requests `{gitProject}`. |
 | `bank_mission` | — | Reflect mission (identity/framing for reflect reasoning). Applied via Banks API. |
 | `bank_retain_mission` | — | Retain mission (steers what gets extracted). Applied via Banks API. |
+
+### Project-scoped banks (opt-in)
+
+The default bank remains `hermes`; existing templates and `{workspace}` keep their
+current behavior. In stock Hermes, `agent_workspace` is a logical label (currently
+`hermes`), **not** a filesystem path. This integration never replaces that label.
+
+To select a project bank, set `bank_id_template` to `project::{gitProject}`. Resolution:
+
+1. A nonempty `git_project` is the explicit name (useful for remote workspaces or
+   sharing a bank across clones with different directory names).
+2. For a **local** terminal backend, read Git's filesystem layout. A checkout and
+   all its linked worktrees use the common repository name, even from subdirectories.
+   Hidden bare hubs such as `project/.bare` use `project`; standalone bare repositories
+   retain their directory name, including a `.git` suffix.
+3. Only a completed local search proving **no repository** uses the initial cwd's
+   basename. Missing/deleted directories, permissions, malformed/dangling `.git` or
+   `commondir` pointers and other detection errors disable project routing, rather
+   than silently creating a different bank. Fix the path/permissions or configure
+   `git_project`, then start a fresh provider/session.
+
+There is no Git subprocess, spawn timeout or inherited `GIT_DIR`/`GIT_COMMON_DIR`
+selection. Repository I/O happens only when the template requests `{gitProject}`
+and no explicit override is set. Names use the existing template sanitization;
+repositories with the same name can share a bank. Use explicit names or include
+`{profile}` if that sharing is unwanted.
+
+For **remote/container backends**, the plugin preserves the explicit override or
+uses the **logical cwd basename**. This is **not remote Git discovery**: remote linked
+worktrees are not automatically unified. No terminal backend is launched and no
+host repository is inspected to identify a remote project. With no known remote cwd,
+`bank_id` is used unchanged, not a partially rendered project prefix.
+
+Context comes from optional stock Hermes `cwd`, then scoped session cwd, then the
+profile's scoped `TERMINAL_CWD`; host cwd is a last resort only for a local backend.
+The backend is also scope-aware. An unavailable/refused scope is never bypassed,
+including when `cwd` or `git_project` is explicit.
+
+Project identity is captured at provider initialization and remains frozen across
+turns and session switches on that provider. Changing cwd/config or deleting a
+worktree mid-session cannot redirect memory. A newly initialized provider captures
+fresh context. `{session}` does rotate on a session switch, after old retain jobs
+capture their bank; pending server operations retain their original bank ownership.
+
+### Personal deployment: missions and retain notices
+
+The `peter/hermes-hindsight` branch layers these contracts on the stock-compatible
+project routing above. It does not require or replace Hermes workspace resolution.
+
+- Nonblank `bank_mission` / `bank_retain_mission` values manage only their respective
+  bank config fields. Blank values leave server-owned fields untouched. Sync is
+  demand-driven before a real operation, cached by API URL, target bank and managed
+  values. A failed read/update is nonfatal, logs once per identity and retries on the
+  next operation; no idle timer. Shared-bank profiles must agree on missions.
+- Queued writes and prefetches synchronize missions for their captured bank, not a
+  newly selected session bank. Operation IDs retain `(bank_id, operation_id)` ownership.
+- `auto_recall: false` disables automatic recall, not retention or explicit memory
+  tools. Its system prompt no longer claims automatic injection is active.
+- A retain failure emits one sticky `hindsight.retain` warning when the host supplies
+  structured notice callbacks. Recovery clears it and emits an eight-second notice
+  only after a newer synchronous completion or an entirely confirmed async group.
+  Acceptance, missing/404 operations, failed/unknown states, status errors, timeouts
+  and completions predating the latest failure do not establish recovery. Recovery
+  does **not** mean previously unsaved content was replayed.
+- Async completion observation is demand-driven on later retain activity or the
+  existing prefetch barrier. With recall disabled, the final async write may remain
+  unobserved until the next real write; there is no idle polling loop.
+
+**Optional Hermes dependency:** structured presentation requires Hermes to pass
+`notice_callback=agent._emit_notice` and
+`notice_clear_callback=agent._emit_notice_clear` through memory-provider initialization,
+plus `agent.credits_tracker.AgentNotice` and an active driver notice sink. The personal
+Hermes candidate provides this small notice bridge. Stock Hermes remains usable without
+it: mission sync and retain behavior work, failures remain in logs, and missing notice
+callbacks/types do not break the writer. The plugin does not install or monkeypatch
+that bridge.
 
 ### Recall
 

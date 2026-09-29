@@ -115,6 +115,34 @@ def fail(p):
     p._client.error = None
 
 
+def test_explicit_retain_success_clears_failed_explicit_retain(provider, monkeypatch):
+    p, notices, clears = provider
+    calls = []
+    original_retain = p._client.aretain_batch
+
+    async def retain(**kwargs):
+        calls.append(kwargs)
+        return await original_retain(**kwargs)
+
+    monkeypatch.setattr(p._client, "aretain_batch", retain)
+    p._client.error = RuntimeError("explicit retain unavailable")
+    with pytest.raises(RuntimeError, match="explicit retain unavailable"):
+        p._tool_retain({"content": "failed explicit memory"})
+    assert p._retain_failed
+    assert [notice.kind for notice in notices] == ["sticky"]
+    assert not clears
+
+    p._client.error = None
+    p._client.reply = SimpleNamespace()
+    assert p._tool_retain({"content": "successful explicit memory"}) == "Memory stored successfully."
+    assert not p._retain_failed
+    assert clears == ["hindsight.retain"]
+    assert [notice.kind for notice in notices] == ["sticky", "ttl"]
+    assert all(call["retain_async"] is False for call in calls)
+    assert not p._pending_retain_ops
+    assert not p._client.checks
+
+
 @pytest.mark.parametrize("platform", ["cli", "telegram", "tui", "acp"])
 def test_agent_init_forwards_notice_callbacks(platform):
     a = Mock(session_id="s", session_cwd="/remote/work", _session_db=None)
@@ -305,13 +333,14 @@ def test_terminality_releases_wait_but_only_completed_recovers(provider, status)
     assert bool(clears) is (status == "completed")
 
 
-def test_older_async_completion_cannot_clear_newer_failure(provider):
+@pytest.mark.parametrize("retain_async", [None, True])
+def test_older_async_completion_cannot_clear_newer_failure(provider, retain_async):
     p, notices, clears = provider
     turn(p)
     fail(p)
     p._client.statuses = {"a": "completed", "b": "completed"}
     p._client.reply = SimpleNamespace()
-    p._tool_retain({"content": "next real activity"})
+    p._retain_batch({"content": "next real activity"}, bank_id=p._bank_id, retain_async=retain_async)
     assert not clears
     assert len(notices) == 1
     p._retain_async = False
