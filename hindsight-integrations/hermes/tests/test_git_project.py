@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-
 from conftest import plugin
 from hindsight_hermes import project
 
@@ -155,7 +154,7 @@ def test_queued_retains_and_operations_keep_original_banks(provider, monkeypatch
     for bank in ("bank-session-1", "bank-session-2"):
         instance._track_retain_ops(SimpleNamespace(operation_id="same-id"), bank)
     checked = []
-    monkeypatch.setattr(instance, "_is_retain_op_complete", lambda bank, op: checked.append((bank, op)) or True)
+    monkeypatch.setattr(instance, "_retain_op_status", lambda bank, op, **kw: checked.append((bank, op)) or "completed")
     assert instance._wait_for_server_retain_ops(lambda: False, 1)
     assert set(checked) == {("bank-session-1", "same-id"), ("bank-session-2", "same-id")}
     instance.shutdown()

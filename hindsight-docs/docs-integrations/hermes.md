@@ -274,6 +274,39 @@ worktree mid-session cannot redirect memory. A newly initialized provider captur
 fresh context. `{session}` does rotate on a session switch, after old retain jobs
 capture their bank; pending server operations retain their original bank ownership.
 
+### Personal deployment: missions and retain notices
+
+The `peter/hermes-hindsight` branch layers these contracts on the stock-compatible
+project routing above. It does not require or replace Hermes workspace resolution.
+
+- Nonblank `bank_mission` / `bank_retain_mission` values manage only their respective
+  bank config fields. Blank values leave server-owned fields untouched. Sync is
+  demand-driven before a real operation, cached by API URL, target bank and managed
+  values. A failed read/update is nonfatal, logs once per identity and retries on the
+  next operation; no idle timer. Shared-bank profiles must agree on missions.
+- Queued writes and prefetches synchronize missions for their captured bank, not a
+  newly selected session bank. Operation IDs retain `(bank_id, operation_id)` ownership.
+- `auto_recall: false` disables automatic recall, not retention or explicit memory
+  tools. Its system prompt no longer claims automatic injection is active.
+- A retain failure emits one sticky `hindsight.retain` warning when the host supplies
+  structured notice callbacks. Recovery clears it and emits an eight-second notice
+  only after a newer synchronous completion or an entirely confirmed async group.
+  Acceptance, missing/404 operations, failed/unknown states, status errors, timeouts
+  and completions predating the latest failure do not establish recovery. Recovery
+  does **not** mean previously unsaved content was replayed.
+- Async completion observation is demand-driven on later retain activity or the
+  existing prefetch barrier. With recall disabled, the final async write may remain
+  unobserved until the next real write; there is no idle polling loop.
+
+**Optional Hermes dependency:** structured presentation requires Hermes to pass
+`notice_callback=agent._emit_notice` and
+`notice_clear_callback=agent._emit_notice_clear` through memory-provider initialization,
+plus `agent.credits_tracker.AgentNotice` and an active driver notice sink. The personal
+Hermes candidate provides this small notice bridge. Stock Hermes remains usable without
+it: mission sync and retain behavior work, failures remain in logs, and missing notice
+callbacks/types do not break the writer. The plugin does not install or monkeypatch
+that bridge.
+
 ### Recall
 
 | Key | Default | Description |
